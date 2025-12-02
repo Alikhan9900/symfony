@@ -3,84 +3,68 @@
 namespace App\Controller;
 
 use App\Entity\Employee;
-use App\Repository\EmployeeRepository;
 use App\Repository\BranchRepository;
+use App\Repository\RentalRepository;
+use App\Service\EmployeeService;
+use App\Service\DeleteProtectionService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/employees', name: 'api_employees_')]
-class EmployeeController extends AbstractController
+#[Route('/employees')]
+class EmployeeController
 {
+    private const REQUIRED_FIELDS = ['firstName', 'lastName'];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private EmployeeRepository $repo,
-        private BranchRepository $branchRepo
-    ) {
-    }
+        private EmployeeService $service,
+        private BranchRepository $branchRepo,
+        private RentalRepository $rentalRepo,
+        private DeleteProtectionService $deleteProtector,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
+    #[Route('', methods: ['POST'])]
+    public function create(Request $request): JsonResponse
     {
-        return $this->json($this->repo->findAll());
-    }
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-    #[Route('', methods: ['POST'], name: 'create')]
-    public function create(Request $req): JsonResponse
-    {
-        $d = json_decode($req->getContent(), true);
+        $branch = isset($data['branchId'])
+            ? $this->branchRepo->find($data['branchId'])
+            : null;
 
-        if (empty($d['firstName']) || empty($d['lastName'])) {
-            return $this->json(['error' => 'firstName & lastName required'], 400);
-        }
-
-        $e = new Employee();
-        $e->setFirstName($d['firstName']);
-        $e->setLastName($d['lastName']);
-        $e->setEmail($d['email'] ?? null);
-
-        if (!empty($d['branch_id'])) {
-            $branch = $this->branchRepo->find($d['branch_id']);
-            if (!$branch) {
-                return $this->json(['error' => 'branch not found'], 404);
-            }
-            $e->setBranch($branch);
-        }
-
-        $this->em->persist($e);
+        $employee = $this->service->create($data, $branch);
         $this->em->flush();
 
-        return $this->json(['id' => $e->getId()], 201);
+        return new JsonResponse($employee, 201);
     }
 
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(Employee $employee): JsonResponse
+    #[Route('/{id}', methods: ['PUT'])]
+    public function update(Request $request, Employee $employee): JsonResponse
     {
-        return $this->json($employee);
-    }
+        $data = json_decode($request->getContent(), true);
 
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
-    public function update(Request $req, Employee $employee): JsonResponse
-    {
-        $d = json_decode($req->getContent(), true);
-
-        if (isset($d['firstName'])) $employee->setFirstName($d['firstName']);
-        if (isset($d['lastName'])) $employee->setLastName($d['lastName']);
-        if (isset($d['email'])) $employee->setEmail($d['email']);
-
+        $this->service->update($employee, $data);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($employee);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Employee $employee): JsonResponse
     {
+        // Не дозволяємо видалити співробітника, якщо він фігурує в орендах
+        $this->deleteProtector->denyIfHasRelations($employee, [
+            'rentals' => [$this->rentalRepo, 'employee']
+        ]);
+
         $this->em->remove($employee);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }

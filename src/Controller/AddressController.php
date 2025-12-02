@@ -3,72 +3,64 @@
 namespace App\Controller;
 
 use App\Entity\Address;
-use App\Repository\AddressRepository;
+use App\Repository\ClientRepository;
+use App\Repository\BranchRepository;
+use App\Service\AddressService;
+use App\Service\DeleteProtectionService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/addresses', name: 'api_addresses_')]
-class AddressController extends AbstractController
+#[Route('/addresses')]
+class AddressController
 {
+    private const REQUIRED_FIELDS = ['country', 'city', 'street'];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private AddressRepository $repo
-    ) {
-    }
+        private AddressService $service,
+        private ClientRepository $clientRepo,
+        private BranchRepository $branchRepo,
+        private DeleteProtectionService $deleteProtector,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
-    {
-        return $this->json($this->repo->findAll());
-    }
-
-    #[Route('', methods: ['POST'], name: 'create')]
+    #[Route('', methods: ['POST'])]
     public function create(Request $request): JsonResponse
     {
-        $d = json_decode($request->getContent(), true);
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-        $address = new Address();
-        $address->setCountry($d['country'] ?? null);
-        $address->setCity($d['city'] ?? null);
-        $address->setStreet($d['street'] ?? null);
-        $address->setZip($d['zip'] ?? null);
-
-        $this->em->persist($address);
+        $address = $this->service->create($data);
         $this->em->flush();
 
-        return $this->json(['id' => $address->getId()], 201);
+        return new JsonResponse($address, 201);
     }
 
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(Address $address): JsonResponse
-    {
-        return $this->json($address);
-    }
-
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
+    #[Route('/{id}', methods: ['PUT'])]
     public function update(Request $request, Address $address): JsonResponse
     {
-        $d = json_decode($request->getContent(), true);
+        $data = json_decode($request->getContent(), true);
 
-        if (isset($d['country'])) $address->setCountry($d['country']);
-        if (isset($d['city'])) $address->setCity($d['city']);
-        if (isset($d['street'])) $address->setStreet($d['street']);
-        if (isset($d['zip'])) $address->setZip($d['zip']);
-
+        $this->service->update($address, $data);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($address);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Address $address): JsonResponse
     {
+        $this->deleteProtector->denyIfHasRelations($address, [
+            'clients' => [$this->clientRepo, 'address'],
+            'branches' => [$this->branchRepo, 'address']
+        ]);
+
         $this->em->remove($address);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }

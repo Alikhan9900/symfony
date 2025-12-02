@@ -3,81 +3,57 @@
 namespace App\Controller;
 
 use App\Entity\MaintenanceRecord;
-use App\Repository\MaintenanceRecordRepository;
 use App\Repository\VehicleRepository;
+use App\Service\MaintenanceRecordService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/maintenance-records', name: 'api_maintenance_')]
-class MaintenanceRecordController extends AbstractController
+#[Route('/maintenance-records')]
+class MaintenanceRecordController
 {
+    private const REQUIRED_FIELDS = ['vehicleId', 'description', 'cost'];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private MaintenanceRecordRepository $repo,
-        private VehicleRepository $vehicleRepo
-    ) {
-    }
+        private MaintenanceRecordService $service,
+        private VehicleRepository $vehicleRepo,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
+    #[Route('', methods: ['POST'])]
+    public function create(Request $request): JsonResponse
     {
-        return $this->json($this->repo->findAll());
-    }
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-    #[Route('', methods: ['POST'], name: 'create')]
-    public function create(Request $req): JsonResponse
-    {
-        $d = json_decode($req->getContent(), true);
+        $vehicle = $this->vehicleRepo->find($data['vehicleId']);
 
-        if (empty($d['vehicle_id'])) {
-            return $this->json(['error' => 'vehicle_id is required'], 400);
-        }
-
-        $vehicle = $this->vehicleRepo->find($d['vehicle_id']);
-        if (!$vehicle) {
-            return $this->json(['error' => 'vehicle not found'], 404);
-        }
-
-        $m = new MaintenanceRecord();
-        $m->setVehicle($vehicle);
-        $m->setDescription($d['description'] ?? null);
-        $m->setCost(isset($d['cost']) ? (string)$d['cost'] : null);
-        $m->setPerformedAt(new \DateTime($d['performed_at'] ?? 'now'));
-
-        $this->em->persist($m);
+        $record = $this->service->create($data, $vehicle);
         $this->em->flush();
 
-        return $this->json(['id' => $m->getId()], 201);
+        return new JsonResponse($record, 201);
     }
 
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(MaintenanceRecord $record): JsonResponse
+    #[Route('/{id}', methods: ['PUT'])]
+    public function update(Request $request, MaintenanceRecord $record): JsonResponse
     {
-        return $this->json($record);
-    }
+        $data = json_decode($request->getContent(), true);
 
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
-    public function update(Request $req, MaintenanceRecord $record): JsonResponse
-    {
-        $d = json_decode($req->getContent(), true);
-
-        if (isset($d['description'])) $record->setDescription($d['description']);
-        if (isset($d['cost'])) $record->setCost((string)$d['cost']);
-
+        $this->service->update($record, $data);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($record);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(MaintenanceRecord $record): JsonResponse
     {
         $this->em->remove($record);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }

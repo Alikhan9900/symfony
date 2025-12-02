@@ -3,90 +3,68 @@
 namespace App\Controller;
 
 use App\Entity\Branch;
-use App\Repository\BranchRepository;
 use App\Repository\AddressRepository;
+use App\Repository\VehicleRepository;
+use App\Repository\EmployeeRepository;
+use App\Service\BranchService;
+use App\Service\DeleteProtectionService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/branches', name: 'api_branches_')]
-class BranchController extends AbstractController
+#[Route('/branches')]
+class BranchController
 {
+    private const REQUIRED_FIELDS = ['name', 'addressId'];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private BranchRepository $repo,
-        private AddressRepository $addressRepo
-    ) {
-    }
+        private BranchService $service,
+        private AddressRepository $addressRepo,
+        private VehicleRepository $vehicleRepo,
+        private EmployeeRepository $employeeRepo,
+        private DeleteProtectionService $deleteProtector,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
-    {
-        return $this->json($this->repo->findAll());
-    }
-
-    #[Route('', methods: ['POST'], name: 'create')]
+    #[Route('', methods: ['POST'])]
     public function create(Request $request): JsonResponse
     {
-        $d = json_decode($request->getContent(), true);
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-        if (empty($d['name'])) {
-            return $this->json(['error' => 'name is required'], 400);
-        }
+        $address = $this->addressRepo->find($data['addressId']);
 
-        $branch = new Branch();
-        $branch->setName($d['name']);
-
-        if (!empty($d['address_id'])) {
-            $address = $this->addressRepo->find($d['address_id']);
-            if (!$address) {
-                return $this->json(['error' => 'address not found'], 404);
-            }
-            $branch->setAddress($address);
-        }
-
-        $this->em->persist($branch);
+        $branch = $this->service->create($data, $address);
         $this->em->flush();
 
-        return $this->json(['id' => $branch->getId()], 201);
+        return new JsonResponse($branch, 201);
     }
 
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(Branch $branch): JsonResponse
-    {
-        return $this->json($branch);
-    }
-
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
+    #[Route('/{id}', methods: ['PUT'])]
     public function update(Request $request, Branch $branch): JsonResponse
     {
-        $d = json_decode($request->getContent(), true);
+        $data = json_decode($request->getContent(), true);
 
-        if (isset($d['name'])) {
-            $branch->setName($d['name']);
-        }
-
-        if (!empty($d['address_id'])) {
-            $address = $this->addressRepo->find($d['address_id']);
-            if (!$address) {
-                return $this->json(['error' => 'address not found'], 404);
-            }
-            $branch->setAddress($address);
-        }
-
+        $this->service->update($branch, $data);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($branch);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Branch $branch): JsonResponse
     {
+        $this->deleteProtector->denyIfHasRelations($branch, [
+            'vehicles' => [$this->vehicleRepo, 'branch'],
+            'employees' => [$this->employeeRepo, 'branch']
+        ]);
+
         $this->em->remove($branch);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }
