@@ -3,93 +3,71 @@
 namespace App\Controller;
 
 use App\Entity\Vehicle;
-use App\Repository\VehicleRepository;
 use App\Repository\VehicleModelRepository;
 use App\Repository\BranchRepository;
+use App\Repository\RentalRepository;
+use App\Repository\MaintenanceRecordRepository;
+use App\Service\VehicleService;
+use App\Service\DeleteProtectionService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/vehicles', name: 'api_vehicles_')]
-class VehicleController extends AbstractController
+#[Route('/vehicles')]
+class VehicleController
 {
+    private const REQUIRED_FIELDS = ['modelId', 'vin', 'mileage', 'status'];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private VehicleRepository $repo,
+        private VehicleService $service,
         private VehicleModelRepository $modelRepo,
-        private BranchRepository $branchRepo
-    ) {
-    }
+        private BranchRepository $branchRepo,
+        private RentalRepository $rentalRepo,
+        private MaintenanceRecordRepository $maintenanceRepo,
+        private DeleteProtectionService $deleteProtector,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
+    #[Route('', methods: ['POST'])]
+    public function create(Request $request): JsonResponse
     {
-        return $this->json($this->repo->findAll());
-    }
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-    #[Route('', methods: ['POST'], name: 'create')]
-    public function create(Request $req): JsonResponse
-    {
-        $data = json_decode($req->getContent(), true);
+        $model = $this->modelRepo->find($data['modelId']);
+        $branch = isset($data['branchId']) ? $this->branchRepo->find($data['branchId']) : null;
 
-        if (empty($data['vin']) || empty($data['model_id'])) {
-            return $this->json(['error' => 'vin and model_id required'], 400);
-        }
-
-        $model = $this->modelRepo->find($data['model_id']);
-        if (!$model) {
-            return $this->json(['error' => 'model not found'], 404);
-        }
-
-        $vehicle = new Vehicle();
-        $vehicle->setVin($data['vin']);
-        $vehicle->setModel($model);
-        $vehicle->setYear($data['year'] ?? null);
-        $vehicle->setMileage((int)($data['mileage'] ?? 0));
-        $vehicle->setStatus($data['status'] ?? 'available');
-
-        if (!empty($data['branch_id'])) {
-            $branch = $this->branchRepo->find($data['branch_id']);
-            if (!$branch) {
-                return $this->json(['error' => 'branch not found'], 404);
-            }
-            $vehicle->setBranch($branch);
-        }
-
-        $this->em->persist($vehicle);
+        $vehicle = $this->service->create($data, $model, $branch);
         $this->em->flush();
 
-        return $this->json(['id' => $vehicle->getId()], 201);
+        return new JsonResponse($vehicle, 201);
     }
 
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(Vehicle $vehicle): JsonResponse
+    #[Route('/{id}', methods: ['PUT'])]
+    public function update(Request $request, Vehicle $vehicle): JsonResponse
     {
-        return $this->json($vehicle);
-    }
+        $data = json_decode($request->getContent(), true);
 
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
-    public function update(Request $req, Vehicle $vehicle): JsonResponse
-    {
-        $data = json_decode($req->getContent(), true);
-
-        if (isset($data['mileage'])) $vehicle->setMileage((int)$data['mileage']);
-        if (isset($data['status'])) $vehicle->setStatus($data['status']);
-        if (isset($data['year'])) $vehicle->setYear((int)$data['year']);
-
+        $this->service->update($vehicle, $data);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($vehicle);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Vehicle $vehicle): JsonResponse
     {
+        $this->deleteProtector->denyIfHasRelations($vehicle, [
+            'rentals' => [$this->rentalRepo, 'vehicle'],
+            'maintenance records' => [$this->maintenanceRepo, 'vehicle'],
+        ]);
+
         $this->em->remove($vehicle);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }

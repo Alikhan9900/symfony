@@ -3,94 +3,80 @@
 namespace App\Controller;
 
 use App\Entity\Rental;
-use App\Repository\RentalRepository;
 use App\Repository\ClientRepository;
 use App\Repository\VehicleRepository;
-use App\Service\RequestValidator;
-use App\Service\RentalManager;
+use App\Repository\EmployeeRepository;
+use App\Repository\PaymentRepository;
+use App\Service\RentalService;
+use App\Service\DeleteProtectionService;
+use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-#[Route('/api/rentals', name: 'api_rentals_')]
-class RentalController extends AbstractController
+#[Route('/rentals')]
+class RentalController
 {
+    private const REQUIRED_FIELDS = [
+        'clientId',
+        'vehicleId',
+        'startDatetime',
+        'endDatetime',
+        'status'
+    ];
+
     public function __construct(
-        private EntityManagerInterface $em,
-        private RentalRepository $repo,
+        private RentalService $service,
         private ClientRepository $clientRepo,
         private VehicleRepository $vehicleRepo,
-        private RequestValidator $validator,
-        private RentalManager $rentalManager
-    ) {
-    }
+        private EmployeeRepository $employeeRepo,
+        private PaymentRepository $paymentRepo,
+        private DeleteProtectionService $deleteProtector,
+        private RequestCheckerService $checker,
+        private EntityManagerInterface $em
+    ) {}
 
-    #[Route('', methods: ['GET'], name: 'list')]
-    public function list(): JsonResponse
+    #[Route('', methods: ['POST'])]
+    public function create(Request $request): JsonResponse
     {
-        return $this->json($this->repo->findAll());
-    }
+        $data = json_decode($request->getContent(), true);
+        $this->checker->check($data, self::REQUIRED_FIELDS);
 
-    #[Route('', methods: ['POST'], name: 'create')]
-    public function create(Request $req): JsonResponse
-    {
-        $data = json_decode($req->getContent(), true);
+        $client = $this->clientRepo->find($data['clientId']);
+        $vehicle = $this->vehicleRepo->find($data['vehicleId']);
+        $employee = isset($data['employeeId'])
+            ? $this->employeeRepo->find($data['employeeId'])
+            : null;
 
-        $errors = $this->validator->validateRentalData($data);
-        if ($errors) {
-            return $this->json(['errors' => $errors], 400);
-        }
-
-        $client = $this->clientRepo->find($data['client_id']);
-        $vehicle = $this->vehicleRepo->find($data['vehicle_id']);
-
-        if (!$client || !$vehicle) {
-            return $this->json(['error' => 'client or vehicle not found'], 404);
-        }
-
-        try {
-            $rental = $this->rentalManager->createRental(
-                $client,
-                $vehicle,
-                new \DateTime($data['start']),
-                new \DateTime($data['end']),
-                (float) $data['total']
-            );
-        } catch (\Exception $e) {
-            return $this->json(['error' => $e->getMessage()], 400);
-        }
-
-        return $this->json(['id' => $rental->getId()], 201);
-    }
-
-    #[Route('/{id}', methods: ['GET'], name: 'get')]
-    public function getOne(Rental $rental): JsonResponse
-    {
-        return $this->json($rental);
-    }
-
-    #[Route('/{id}', methods: ['PUT'], name: 'update')]
-    public function update(Request $req, Rental $rental): JsonResponse
-    {
-        $d = json_decode($req->getContent(), true);
-
-        if (isset($d['status'])) {
-            $rental->setStatus($d['status']);
-        }
-
+        $rental = $this->service->create($data, $client, $vehicle, $employee);
         $this->em->flush();
 
-        return $this->json(['message' => 'updated']);
+        return new JsonResponse($rental, 201);
     }
 
-    #[Route('/{id}', methods: ['DELETE'], name: 'delete')]
+    #[Route('/{id}', methods: ['PUT'])]
+    public function update(Request $request, Rental $rental): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+
+        $this->service->update($rental, $data);
+        $this->em->flush();
+
+        return new JsonResponse($rental);
+    }
+
+    #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Rental $rental): JsonResponse
     {
+        // Забороняємо видалення, якщо є платежі по цій оренді
+        $this->deleteProtector->denyIfHasRelations($rental, [
+            'payments' => [$this->paymentRepo, 'rental']
+        ]);
+
         $this->em->remove($rental);
         $this->em->flush();
 
-        return $this->json(['message' => 'deleted']);
+        return new JsonResponse(['message' => 'Deleted']);
     }
 }
