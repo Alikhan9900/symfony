@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\Payment;
 use App\Repository\RentalRepository;
+use App\Repository\PaymentRepository;
 use App\Service\PaymentService;
 use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -56,4 +57,18 @@ class PaymentController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, PaymentRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = $query['itemsPerPage'] ?? 10;
+        $page = $query['page'] ?? 1;
+
+        $result = $repo->getAllByFilter($query, (int)$itemsPerPage, (int)$page);
+
+        return new JsonResponse($result);
+    }
+
 }

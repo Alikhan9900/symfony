@@ -11,6 +11,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
+use App\Repository\ClientRepository;
 
 #[Route('/clients')]
 class ClientController
@@ -51,7 +52,6 @@ class ClientController
     #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Client $client): JsonResponse
     {
-        // Забороняємо видалення, якщо є оренди цього клієнта
         $this->deleteProtector->denyIfHasRelations($client, [
             'rentals' => [$this->rentalRepo, 'client']
         ]);
@@ -61,4 +61,18 @@ class ClientController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, ClientRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = $query['itemsPerPage'] ?? 10;
+        $page = $query['page'] ?? 1;
+
+        $result = $repo->getAllByFilter($query, (int)$itemsPerPage, (int)$page);
+
+        return new JsonResponse($result);
+    }
+
 }

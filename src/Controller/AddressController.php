@@ -12,6 +12,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
+use App\Repository\AddressRepository;
 
 #[Route('/addresses')]
 class AddressController
@@ -63,4 +64,18 @@ class AddressController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, AddressRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = isset($query['itemsPerPage']) ? (int)$query['itemsPerPage'] : 10;
+        $page         = isset($query['page']) ? (int)$query['page'] : 1;
+
+        $result = $repo->getAllByFilter($query, $itemsPerPage, $page);
+
+        return new JsonResponse($result);
+    }
+
 }
