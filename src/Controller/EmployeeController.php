@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\Employee;
 use App\Repository\BranchRepository;
 use App\Repository\RentalRepository;
+use App\Repository\EmployeeRepository;
 use App\Service\EmployeeService;
 use App\Service\DeleteProtectionService;
 use App\Service\RequestCheckerService;
@@ -57,7 +58,6 @@ class EmployeeController
     #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Employee $employee): JsonResponse
     {
-        // Не дозволяємо видалити співробітника, якщо він фігурує в орендах
         $this->deleteProtector->denyIfHasRelations($employee, [
             'rentals' => [$this->rentalRepo, 'employee']
         ]);
@@ -67,4 +67,18 @@ class EmployeeController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, EmployeeRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = $query['itemsPerPage'] ?? 10;
+        $page = $query['page'] ?? 1;
+
+        $result = $repo->getAllByFilter($query, (int)$itemsPerPage, (int)$page);
+
+        return new JsonResponse($result);
+    }
+
 }

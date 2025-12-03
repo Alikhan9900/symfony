@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\MaintenanceRecord;
 use App\Repository\VehicleRepository;
+use App\Repository\MaintenanceRecordRepository;
 use App\Service\MaintenanceRecordService;
 use App\Service\RequestCheckerService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -56,4 +57,18 @@ class MaintenanceRecordController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, MaintenanceRecordRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = $query['itemsPerPage'] ?? 10;
+        $page = $query['page'] ?? 1;
+
+        $result = $repo->getAllByFilter($query, (int)$itemsPerPage, (int)$page);
+
+        return new JsonResponse($result);
+    }
+
 }

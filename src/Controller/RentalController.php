@@ -7,6 +7,7 @@ use App\Repository\ClientRepository;
 use App\Repository\VehicleRepository;
 use App\Repository\EmployeeRepository;
 use App\Repository\PaymentRepository;
+use App\Repository\RentalRepository;
 use App\Service\RentalService;
 use App\Service\DeleteProtectionService;
 use App\Service\RequestCheckerService;
@@ -69,7 +70,6 @@ class RentalController
     #[Route('/{id}', methods: ['DELETE'])]
     public function delete(Rental $rental): JsonResponse
     {
-        // Забороняємо видалення, якщо є платежі по цій оренді
         $this->deleteProtector->denyIfHasRelations($rental, [
             'payments' => [$this->paymentRepo, 'rental']
         ]);
@@ -79,4 +79,18 @@ class RentalController
 
         return new JsonResponse(['message' => 'Deleted']);
     }
+
+    #[Route('', methods: ['GET'])]
+    public function getCollection(Request $request, RentalRepository $repo): JsonResponse
+    {
+        $query = $request->query->all();
+
+        $itemsPerPage = $query['itemsPerPage'] ?? 10;
+        $page = $query['page'] ?? 1;
+
+        $result = $repo->getAllByFilter($query, (int)$itemsPerPage, (int)$page);
+
+        return new JsonResponse($result);
+    }
+
 }
