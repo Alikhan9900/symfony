@@ -31,16 +31,18 @@ class RuntimeConstraintExceptionListener
         );
     }
 
-    private function getCode(Throwable $exception): int
+    public function getCode(Throwable $exception): int
     {
         if (method_exists($exception, "getStatusCode")) {
-            return Response::$statusTexts[$exception->getStatusCode()]
-                ? $exception->getStatusCode()
-                : Response::HTTP_UNPROCESSABLE_ENTITY;
+            $status = $exception->getStatusCode();
+            return is_numeric($status) ? (int)$status : Response::HTTP_UNPROCESSABLE_ENTITY;
         }
 
-        return Response::$statusTexts[$exception->getCode()] ?? Response::HTTP_UNPROCESSABLE_ENTITY;
+        $code = $exception->getCode();
+
+        return is_numeric($code) ? (int)$code : Response::HTTP_UNPROCESSABLE_ENTITY;
     }
+
 
     private function getErrors(Throwable $exception): array
     {
