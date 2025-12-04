@@ -2,18 +2,48 @@
 
 namespace App\Entity;
 
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\Metadata\Post;
+use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Delete;
+use Symfony\Component\Serializer\Annotation\Groups;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity]
+#[ApiResource(
+    operations: [
+        new GetCollection(
+            normalizationContext: ['groups' => ['manufacturer:read']]
+        ),
+        new Post(
+            denormalizationContext: ['groups' => ['manufacturer:write']],
+            normalizationContext: ['groups' => ['manufacturer:read']]
+        ),
+        new Get(
+            normalizationContext: ['groups' => ['manufacturer:read']]
+        ),
+        new Patch(
+            denormalizationContext: ['groups' => ['manufacturer:write']],
+            normalizationContext: ['groups' => ['manufacturer:read']]
+        ),
+        new Delete()
+    ],
+    normalizationContext: ['groups' => ['manufacturer:read']],
+    denormalizationContext: ['groups' => ['manufacturer:write']]
+)]
 class Manufacturer
 {
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type:"integer")]
+    #[Groups(['manufacturer:read'])]
     private ?int $id = null;
 
     #[ORM\Column(type:"string", length:150)]
+    #[Groups(['manufacturer:read', 'manufacturer:write'])]
     #[Assert\NotBlank(message: "Manufacturer name cannot be empty.")]
     #[Assert\Length(
         min: 2,
