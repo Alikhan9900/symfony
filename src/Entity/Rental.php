@@ -2,39 +2,78 @@
 
 namespace App\Entity;
 
+use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\Metadata\Post;
+use ApiPlatform\Metadata\Patch;
+use ApiPlatform\Metadata\Delete;
+
+use ApiPlatform\Metadata\ApiFilter;
+use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use ApiPlatform\Doctrine\Orm\Filter\OrderFilter;
+
+use App\Repository\RentalRepository;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
+use Symfony\Component\Serializer\Annotation\Groups;
 
-#[ORM\Entity]
+#[ORM\Entity(repositoryClass: RentalRepository::class)]
+#[ApiResource(
+    operations: [
+        new Get(security: "is_granted('ROLE_USER')"),
+        new GetCollection(security: "is_granted('ROLE_USER')"),
+        new Post(security: "is_granted('ROLE_ADMIN')"),
+        new Patch(security: "is_granted('ROLE_ADMIN')"),
+        new Delete(security: "is_granted('ROLE_ADMIN')")
+    ],
+    normalizationContext: ['groups' => ['rental_read']],
+    denormalizationContext: ['groups' => ['rental_write']]
+)]
+#[ApiFilter(SearchFilter::class, properties: [
+    'client.id' => 'exact',
+    'vehicle.id' => 'exact',
+    'employee.id' => 'exact',
+    'status' => 'partial'
+])]
+#[ApiFilter(OrderFilter::class, properties: [
+    'id', 'startDatetime', 'endDatetime', 'totalAmount'
+], arguments: ['orderParameterName' => 'order'])]
 class Rental
 {
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column(type:"integer")]
+    #[Groups(['rental_read'])]
     private ?int $id = null;
 
     #[ORM\ManyToOne(targetEntity: Client::class)]
     #[ORM\JoinColumn(nullable:false)]
     #[Assert\NotNull(message: "Client must be specified.")]
     #[Assert\Valid]
+    #[Groups(['rental_read', 'rental_write'])]
     private Client $client;
 
     #[ORM\ManyToOne(targetEntity: Vehicle::class)]
     #[ORM\JoinColumn(nullable:false)]
     #[Assert\NotNull(message: "Vehicle must be specified.")]
     #[Assert\Valid]
+    #[Groups(['rental_read', 'rental_write'])]
     private Vehicle $vehicle;
 
     #[ORM\ManyToOne(targetEntity: Employee::class)]
     #[Assert\Valid]
+    #[Groups(['rental_read', 'rental_write'])]
     private ?Employee $employee = null;
 
     #[ORM\Column(type:"datetime", nullable:true)]
     #[Assert\Type(\DateTimeInterface::class)]
+    #[Groups(['rental_read', 'rental_write'])]
     private ?\DateTimeInterface $startDatetime = null;
 
     #[ORM\Column(type:"datetime", nullable:true)]
     #[Assert\Type(\DateTimeInterface::class)]
+    #[Groups(['rental_read', 'rental_write'])]
     private ?\DateTimeInterface $endDatetime = null;
 
     #[ORM\Column(type:"decimal", precision:10, scale:2, nullable:true)]
@@ -43,6 +82,7 @@ class Rental
         message: "Total amount must be a valid decimal number."
     )]
     #[Assert\PositiveOrZero(message: "Total amount cannot be negative.")]
+    #[Groups(['rental_read', 'rental_write'])]
     private ?string $totalAmount = null;
 
     #[ORM\Column(type:"string", length:50)]
@@ -51,6 +91,7 @@ class Rental
         choices: ["new", "active", "completed", "canceled"],
         message: "Invalid rental status."
     )]
+    #[Groups(['rental_read', 'rental_write'])]
     private string $status = 'new';
 
     public function getId(): ?int { return $this->id; }
